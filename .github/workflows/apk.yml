@@ -29,12 +29,21 @@ jobs:
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
       - name: Tunnel.
         run: Start-Process Powershell -ArgumentList '-Command ".\ngrok\ngrok.exe tcp --region ap 3389"'
-      - name: Print Ngrok tunnel URL + creds
+      - name: Wait for Ngrok API and print tunnel URL + creds
         shell: powershell
         run: |
-          Start-Sleep -Seconds 5
-          $tunnel = (Invoke-RestMethod http://127.0.0.1:4040/api/tunnels).tunnels[0].public_url
-          if (-not $tunnel) { throw "ngrok tunnel not found" }
+          $maxRetries = 18
+          $tunnel = $null
+          for ($i = 0; $i -lt $maxRetries; $i++) {
+            try {
+              $tunnel = (Invoke-RestMethod http://127.0.0.1:4040/api/tunnels).tunnels[0].public_url
+              if ($tunnel) { break }
+            } catch {
+              Write-Host "Ngrok API not ready yet (attempt $($i + 1)/$maxRetries)."
+            }
+            Start-Sleep -Seconds 5
+          }
+          if (-not $tunnel) { throw "Ngrok API not ready after $($maxRetries * 5) seconds" }
           Write-Host "NGROK URL: $tunnel"
           Write-Host "Username: lucifer"
           Write-Host "Password: JohnCena?6969"

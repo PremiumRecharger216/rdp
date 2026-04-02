@@ -28,22 +28,36 @@ jobs:
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
       - name: Tunnel.
-        run: Start-Process Powershell -ArgumentList '-Command ".\ngrok\ngrok.exe tcp --region ap 3389"'
+        run: |
+          Start-Process -FilePath ".\ngrok\ngrok.exe" -ArgumentList "tcp --region us 3389" -NoNewWindow
+          Start-Sleep -Seconds 3
+          Get-Process ngrok -ErrorAction SilentlyContinue | Select-Object Id, ProcessName
       - name: Wait for Ngrok API and print tunnel URL + creds
         shell: powershell
         run: |
-          $maxRetries = 18
+          $maxRetries = 30
           $tunnel = $null
           for ($i = 0; $i -lt $maxRetries; $i++) {
             try {
-              $tunnel = (Invoke-RestMethod http://127.0.0.1:4040/api/tunnels).tunnels[0].public_url
+              $response = Invoke-WebRequest -Uri http://127.0.0.1:4040/api/tunnels -TimeoutSec 5 -ErrorAction Stop
+              $data = $response.Content | ConvertFrom-Json
+              $tunnel = $data.tunnels[0].public_url
               if ($tunnel) { break }
             } catch {
-              Write-Host "Ngrok API not ready yet (attempt $($i + 1)/$maxRetries)."
+              Write-Host "Ngrok API not ready yet (attempt $($i + 1)/$maxRetries). Error: $($_.Exception.Message)"
             }
-            Start-Sleep -Seconds 5
+            Start-Sleep -Seconds 3
           }
-          if (-not $tunnel) { throw "Ngrok API not ready after $($maxRetries * 5) seconds" }
+          if (-not $tunnel) {
+            Write-Host "Checking if ngrok process is running..."
+            $ngrokProc = Get-Process ngrok -ErrorAction SilentlyContinue
+            if ($ngrokProc) {
+              Write-Host "Ngrok process found (PID: $($ngrokProc.Id))"
+            } else {
+              Write-Host "No ngrok process found!"
+            }
+            throw "Ngrok API not ready after $($maxRetries * 3) seconds"
+          }
           Write-Host "NGROK URL: $tunnel"
           Write-Host "Username: lucifer"
           Write-Host "Password: JohnCena?6969"
